@@ -1,0 +1,7 @@
+#include <linux/path.h>
+#include <linux/dcache.h>
+
+kretprobe:vfs_readlink /pid == 11756/
+{
+	printf("returned: %d\n", retval);
+}

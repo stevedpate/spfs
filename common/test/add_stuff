@@ -1,0 +1,14 @@
+MNTPT=/mnt
+
+i=0
+while [ $i -lt 10 ]
+do
+	mkdir /$MNTPT/dir-$i
+	x=0
+	while [ $x -lt 10 ]
+	do
+		cp lorem /$MNTPT/dir-$i/lorem-$i
+		x=`expr $x + 1`
+	done
+	i=`expr $i + 1`
+done

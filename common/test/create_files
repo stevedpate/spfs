@@ -1,0 +1,13 @@
+SP_MAXFILES=128		# from spfs.h
+MNTPT=/mnt
+
+i=1
+while [ $i -le $SP_MAXFILES ]
+do
+	echo Creating $MNTPT/file-$
+	touch $MNTPT/file-$i
+	if [ $? != 0 ] ; then
+		echo "Failed to write file $i"
+	fi
+	i=`expr $i + 1`
+done
