@@ -20,7 +20,9 @@ The filesystem will be updated once a year for new versions of Ubuntu (April rel
 
 ## SPFS Disk Layout
 
+Here is the disk layout. It's very restrictive. The superblock uses all of block 0 (2048 bytes) so the arrays for free inodes and data blocks are fixed.
 
+[Figures.pdf](https://github.com/stevedpate/spfs/files/13171720/Figures.pdf)
 
 ## Building SPFS
 
