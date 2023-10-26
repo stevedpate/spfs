@@ -11,6 +11,7 @@ Here are the main characteristics of SPFS:
 - Maximum filename length up to 28 characters.
 - 760 blocks within the whole filesystem.
 - A maximum file size of approximately 505 KB.
+- A `mkfs` command to create the filesystem and a `fillfs` command to create more files than the basic `mkfs` does. This allows development of "read" operations before having to deal with operations that require creating strucutres on disk.
 - File undelete using the SPFS `fsdb` command.
 - File creation, deletion, rename, symlinks, ... 
 
@@ -20,9 +21,11 @@ The filesystem will be updated once a year for new versions of Ubuntu (April rel
 
 ## SPFS Disk Layout
 
-Here is the disk layout. It's very restrictive. The superblock uses all of block 0 (2048 bytes) so the arrays for free inodes and data blocks are fixed.
+Here is the disk layout. It's very restrictive. The superblock uses all of block 0 (2048 bytes) so the arrays for free inodes (s_inode) and data blocks (s_block) are fixed. This is what gives SPFS its fixed limitations.
 
-[Figures.pdf](https://github.com/stevedpate/spfs/files/13171720/Figures.pdf)
+<img width="639" alt="disk-layout" src="https://github.com/stevedpate/spfs/assets/15929569/82a4a703-1186-4e4a-98f1-ecbf0871fb33">
+
+To make SPFS more flexible, it would make the on-disk structures more complicated and since it's just for teaching purposes, simple wins.
 
 ## Building SPFS
 
