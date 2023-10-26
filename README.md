@@ -18,6 +18,10 @@ Most of these limitations are in place to keep the on-disk structures very simpl
 
 The filesystem will be updated once a year for new versions of Ubuntu (April releases) and bug fixes will only be applied to the current release.
 
+## SPFS Disk Layout
+
+
+
 ## Building SPFS
 
 It's very simple. Run `make` in the `kern` directory and you'll get `spfs.ko` which can be loaded with `sudo insmod spfs.ko`.
