@@ -1,3 +1,11 @@
+// SPDX-License-Identifier: GPL-2.0
+
+/*
+ * sp_file.c - regular file operations.
+ *
+ * Copyright (c) 2023 Steve D. Pate
+ */
+
 #include <linux/fs.h>
 #include <linux/buffer_head.h>
 #include "spfs.h"

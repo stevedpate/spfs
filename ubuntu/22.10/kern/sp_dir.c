@@ -1,3 +1,12 @@
+// SPDX-License-Identifier: GPL-2.0
+
+/*
+ * sp_dir.c - directory specific operations (mkdir, rmdir, readdir, rename,
+ *            file creation, symlinks, hard links, ...
+ *
+ * Copyright (c) 2023 Steve D. Pate
+ */
+
 #include <linux/sched.h>
 #include <linux/string.h>
 #include <linux/buffer_head.h>

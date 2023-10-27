@@ -1,3 +1,12 @@
+// SPDX-License-Identifier: GPL-2.0
+
+/* 
+ * sp_inode.c - mostly inode handling as well as module load/unload and
+ *              mount handling code.
+ *
+ * Copyright (c) 2023 Steve D. Pate
+ */
+
 #include <linux/module.h>
 #include <linux/mm.h>
 #include <linux/slab.h>
@@ -13,8 +22,8 @@
 #include "spfs.h"
 
 MODULE_AUTHOR("Steve Pate <spate@me.com>");
-MODULE_DESCRIPTION("A simple filesystem for Linux");
-MODULE_LICENSE("GPL");  /* XXX - need dual license */
+MODULE_DESCRIPTION("A simple Linux filesystem for teaching");
+MODULE_LICENSE("GPL");
 
 static struct kmem_cache *spfs_inode_cache;
 

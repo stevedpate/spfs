@@ -1,3 +1,13 @@
+// SPDX-License-Identifier: GPL-2.0
+
+/*
+ * fsdb.c - this is the SPFS fsdb command. A menu of options can be
+ *          seen with the "h" command. There is no error checking on
+ *          commands entered so must be entered correctly.
+ *
+ * Copyright 2023 Steve D. Pate
+ */
+
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>

@@ -1,3 +1,11 @@
+// SPDX-License-Identifier: GPL-2.0
+
+/*
+ * spfs.h - On-disk as well as in-core SPFS structures.
+ *
+ * Copyright (c) 2023 Steve D. Pate
+ */
+
 #define SP_BSIZE                2048
 #define SP_MAXFILES             128
 #define SP_MAXBLOCKS            760

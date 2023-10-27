@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-2.0
+
 /*
  * mkfs.c - this is the SPFS mkfs command. It writes the following structures
  *          to disk:
@@ -5,7 +7,8 @@
  *          - superblock
  *          - root inode with entries for ".", ".." and "lost+found"
  *          - lost+found inode with entries for "." and ".." 
- *          - 
+ *
+ * Copyright 2023 Steve D. Pate
  */
 
 #include <sys/types.h>

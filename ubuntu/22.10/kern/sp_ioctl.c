@@ -1,3 +1,12 @@
+// SPDX-License-Identifier: GPL-2.0
+
+/*
+ * sp_ioctl.c - mostly a placeholder for any ioctls that we want to add
+ *              at some point.
+ *
+ * Copyright (c) 2023 Steve D. Pate
+ */
+
 #include <linux/fs.h>
 #include "spfs.h"
 

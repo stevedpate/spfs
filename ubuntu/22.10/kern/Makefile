@@ -1,4 +1,8 @@
-# Makefile for spfs kernel module
+# SPDX-License-Identifier: GPL-2.0
+#
+# Makefile for spfs.ko kernel module
+#
+# Copyright (c) 2023 Steve D. Pate
 
 PWD   := $(shell pwd)
 obj-m += spfs.o

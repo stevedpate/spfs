@@ -1,3 +1,11 @@
+// SPDX-License-Identifier: GPL-2.0
+
+/*
+ * sp_alloc.c - routines for allocating an inode and a data block.
+ *
+ * Copyright (c) 2023 Steve D. Pate
+ */
+
 #include <linux/module.h>
 #include <linux/mm.h>
 #include <linux/slab.h>
@@ -35,7 +43,7 @@ sp_ialloc(struct super_block *sb)
 
 /*
  * Allocate a new data block. We update the superblock and return
- * the new block  number.
+ * the new block number.
  */
 
 int

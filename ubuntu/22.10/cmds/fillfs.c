@@ -1,7 +1,11 @@
+// SPDX-License-Identifier: GPL-2.0
+
 /* 
  * fillfs.c - similar to mkfs but adds some additional files which make
  *            it easier to get started (running "ls", "cat" etc), i.e.
  *            some simple, read-only type commands.
+ *
+ * Copyright 2023 Steve D. Pate
  */
 
 #include <sys/types.h>
