@@ -8,7 +8,7 @@
 
 #include <linux/fs.h>
 #include <linux/buffer_head.h>
-#include "spfs.h"
+#include "../../../common/kern/spfs.h"
 
 struct file_operations sp_file_operations = {
 	.fsync			= generic_file_fsync,

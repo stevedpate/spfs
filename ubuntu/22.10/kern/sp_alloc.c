@@ -11,7 +11,7 @@
 #include <linux/slab.h>
 #include <linux/init.h>
 #include <asm/uaccess.h>
-#include "spfs.h"
+#include "../../../common/kern/spfs.h"
 
 /*
  * Allocate a new inode. We update the superblock and return

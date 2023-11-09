@@ -8,7 +8,7 @@
  */
 
 #include <linux/fs.h>
-#include "spfs.h"
+#include "../../../common/kern/spfs.h"
 
 long
 sp_ioctl(struct file *file, unsigned int cmd, unsigned long arg)

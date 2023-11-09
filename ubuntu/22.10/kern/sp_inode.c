@@ -19,7 +19,7 @@
 #include <linux/fs.h>
 #include <linux/writeback.h>
 #include <uapi/linux/mount.h>
-#include "spfs.h"
+#include "../../../common/kern/spfs.h"
 
 MODULE_AUTHOR("Steve Pate <spate@me.com>");
 MODULE_DESCRIPTION("A simple Linux filesystem for teaching");

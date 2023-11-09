@@ -11,7 +11,7 @@
 #include <linux/string.h>
 #include <linux/buffer_head.h>
 #include <linux/time.h>
-#include "spfs.h"
+#include "../../../common/kern/spfs.h"
 
 /*
  * Remove "name" from the directory "dip".
