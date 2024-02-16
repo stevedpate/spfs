@@ -1,3 +1,7 @@
+v1.2 - February 2024
+        - The course is now complete so this is the version that goes
+          with the first version of the course.
+
 v1.1 - November 2023
         - The 22.10 version runs on 23.04 without changes so symlink
           23.04 -> 22.10
