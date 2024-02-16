@@ -5,7 +5,7 @@
  *          seen with the "h" command. There is no error checking so
  *          commands entered so must be entered correctly.
  *
- * Copyright 2023 Steve D. Pate
+ * Copyright 2023-2024 Steve D. Pate
  */
 
 #include <sys/types.h>
@@ -279,22 +279,24 @@ print_inode(int inum, struct sp_inode *spi)
 	printf("  i_gid      = %d\n", spi->i_gid);
 	printf("  i_size     = %d\n", spi->i_size);
 	printf("  i_blocks   = %d\n", spi->i_blocks);
-	for (i=0 ; i<SP_DIRECT_BLOCKS; i++) {
-		if (i % 3 == 0 && pi == 3) {
-				printf("\n");
-				pi = 0;
-		}
-		if (spi->i_addr[i] != 0) {
-			printf("  i_addr[%2d] = %3d ", i, spi->i_addr[i]);
-			pi++;
-		}
-	}
+    if (spi->i_blocks) {
+        for (i=0 ; i<SP_DIRECT_BLOCKS; i++) {
+            if (i % 3 == 0 && pi == 3) {
+                    printf("\n");
+                    pi = 0;
+            }
+            if (spi->i_addr[i] != 0) {
+                printf("  i_addr[%2d] = %3d ", i, spi->i_addr[i]);
+                pi++;
+            }
+        }
+    }
 
 	/*
 	 * Print out the directory entries if this is a directory.
 	 */
 
-	if (spi->i_mode & S_IFDIR) {
+	if (S_ISDIR(spi->i_mode)) {
 		printf("\n\n  Directory entries:\n");
 		for (i=0 ; i < spi->i_blocks ; i++) {
 			lseek(devfd, spi->i_addr[i] * SP_BSIZE, SEEK_SET);
@@ -309,7 +311,9 @@ print_inode(int inum, struct sp_inode *spi)
 			}
 		}
 		printf("\n");
-	} else {
+	} else if (S_ISLNK(spi->i_mode)) {
+        printf("  symlink    = %s\n", (char *)spi->i_addr);
+    } else {
 		printf("\n");
 	}
 }
@@ -345,7 +349,6 @@ main(int argc, char **argv)
 		printf("spfsdb > ") ;
 		fflush(stdout);
 		error = scanf("%s", command);
-        printf("error[%d]\n",error);
 		if (command[0] == 'q') {
 			return(0);
 		}

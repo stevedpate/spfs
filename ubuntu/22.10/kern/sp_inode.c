@@ -4,7 +4,7 @@
  * sp_inode.c - mostly inode handling as well as module load/unload and
  *              mount handling code.
  *
- * Copyright (c) 2023 Steve D. Pate
+ * Copyright (c) 2023-2024 Steve D. Pate
  */
 
 #include <linux/module.h>
@@ -30,6 +30,8 @@ static struct kmem_cache *spfs_inode_cache;
 /*
  * This function looks for "name" in the directory "dip". 
  * If found the inode number is returned.
+ *
+ * There are 32 sp_direct structures per block.
  */
 
 int
@@ -41,7 +43,7 @@ sp_find_entry(struct inode *dip, char *name)
     struct sp_dirent        *dirent;
     int                     i, blk = 0;
 
-    printk("spfs: sp_find_entry - looking for %s (dip = %p)\n", name, dip);
+    printk("spfs: sp_find_entry - looking for %s (dip = %px)\n", name, dip);
     for (blk=0 ; blk < spi->i_blocks ; blk++) {
         bh = sb_bread(sb, spi->i_addr[blk]);
         dirent = (struct sp_dirent *)bh->b_data;
@@ -54,21 +56,21 @@ sp_find_entry(struct inode *dip, char *name)
             }
             dirent++;
         }
+        brelse(bh);
     }
-    brelse(bh);
     printk("spfs: sp_find_entry - failed for %s\n", name);
     return 0;
 }
 
 /*
- * Called internally by sp_fill_super() and also from sp_lookup()
+ * Called internally by sp_fill_super() but generally from sp_lookup()
  * when reading a file that's not already in-core.
  */
 
 struct inode *
 sp_read_inode(struct super_block *sb, unsigned long ino)
 {
-    struct buffer_head        *bh, *symbh;
+    struct buffer_head        *bh;
     struct sp_inode           *disk_ip;
     struct sp_inode_info      *spi;
     struct inode              *inode;
@@ -90,13 +92,15 @@ sp_read_inode(struct super_block *sb, unsigned long ino)
     block = SP_INODE_BLOCK + ino;
     bh = sb_bread(sb, block);
     if (!bh) {
-            printk("spfs: sp_read_inode - Unable to read inode %lu\n", ino);
+            printk("spfs: sp_read_inode - Unable to read inode %d\n", (int)ino);
             goto out;
     }
     disk_ip = (struct sp_inode *)bh->b_data;
-    spi = ITOSPI(inode);
 
+    spi = spi_container(inode);
+    inode->i_private = spi;
     inode->i_mode = le32_to_cpu(disk_ip->i_mode);
+
     if (S_ISDIR(disk_ip->i_mode)) {
         inode->i_op = &sp_dir_inops;
         inode->i_fop = &sp_dir_operations;
@@ -105,18 +109,11 @@ sp_read_inode(struct super_block *sb, unsigned long ino)
         inode->i_fop = &sp_file_operations;
         inode->i_mapping->a_ops = &sp_aops;
     } else if (S_ISLNK(disk_ip->i_mode)) {
-        inode->i_op = &sp_symlink_operations;
-        inode_nohighmem(inode);     /* XXX does what? See inode.c: BUG_ON */
-        inode->i_mapping->a_ops = &sp_aops;
-        printk("LNK - reading link from block %d\n", disk_ip->i_addr[0]);
-        symbh = sb_bread(sb, disk_ip->i_addr[0]); /* XXX error */
-        memcpy(spi->i_symlink, (char *)symbh->b_data, disk_ip->i_size);
-        spi->i_symlink[disk_ip->i_size] = '\0';
+        inode->i_op = &simple_symlink_inode_operations;
+        memcpy(spi->i_symlink, (char *)disk_ip->i_addr, disk_ip->i_size);
         inode->i_link = spi->i_symlink;
-        printk("LNK - read link =  %s\n", inode->i_link);
-        brelse(symbh);
     } else {
-        printk("spfs: read_inode - can't get here\n"); /* XXX */
+        printk("spfs: read_inode - can't get here\n"); 
     }
     i_uid_write(inode, (uid_t)disk_ip->i_uid);
     i_gid_write(inode, (uid_t)disk_ip->i_gid);
@@ -129,9 +126,6 @@ sp_read_inode(struct super_block *sb, unsigned long ino)
     inode->i_atime.tv_nsec = 0;
     inode->i_mtime.tv_nsec = 0;
     inode->i_ctime.tv_nsec = 0;
-    inode->i_private = spi;
-    printk("*** set i_private to 0x%px\n", spi);
-    printk("*** addr of inode = 0x%px\n", inode);
 
     for (i=0 ; i < SP_DIRECT_BLOCKS ; i++) {
         spi->i_addr[i] = disk_ip->i_addr[i];
@@ -140,7 +134,10 @@ sp_read_inode(struct super_block *sb, unsigned long ino)
 
     brelse(bh);
     unlock_new_inode(inode);
-    printk("spfs: sp_read_inode gets inode = %p\n", inode);
+
+    printk("spfs: sp_read_inode - spi = 0x%px\n", spi);
+    printk("spfs: sp_read_inode - inode = 0x%px\n", inode);
+
     return inode;
 
 out:
@@ -150,10 +147,8 @@ out:
 
 /*
  * This function is called to write a dirty inode to disk. We read
- * the original (XXX not needed), copy all the in-core fields and
- * mark the buffer dirty so it gets flushed.
- * 
- * XXX look at what wbc does
+ * the original, copy all the in-core fields and mark the buffer dirty 
+ * so it gets flushed.
  */
 
 int
@@ -168,7 +163,7 @@ sp_write_inode(struct inode *inode, struct writeback_control *wbc)
 
     printk("spfs: sp_write_inode (ino=%ld)\n", inode->i_ino);
     blk = SP_INODE_BLOCK + ino;
-    bh = sb_bread(inode->i_sb, blk); /* XXX check return */
+    bh = sb_bread(inode->i_sb, blk); 
     dip = (struct sp_inode *)bh->b_data;
     dip->i_mode = cpu_to_le32(inode->i_mode);
     dip->i_nlink = cpu_to_le32(inode->i_nlink);
@@ -183,6 +178,15 @@ sp_write_inode(struct inode *inode, struct writeback_control *wbc)
     for (i=0 ; i<SP_DIRECT_BLOCKS ; i++) {
         dip->i_addr[i] = cpu_to_le32(spi->i_addr[i]);
     }
+
+    /*
+     * For symlinks we store the name in the disk block array
+     * since symlinks have no data blocks.
+     */
+
+    if (S_ISLNK(inode->i_mode)) {
+        memcpy((char *)dip->i_addr, inode->i_link, inode->i_size);
+    }
     mark_buffer_dirty(bh);
     if (wbc->sync_mode == WB_SYNC_ALL) {
         sync_dirty_buffer(bh);
@@ -194,20 +198,18 @@ sp_write_inode(struct inode *inode, struct writeback_control *wbc)
     return(error);
 }
 
-static void
+void
 sp_free_inode(struct inode *inode)
 {
     printk("spfs: sp_free_inode (ino=%ld)\n", inode->i_ino);
-    kmem_cache_free(spfs_inode_cache, SPFS_I(inode));
+    kmem_cache_free(spfs_inode_cache, ITOSPI(inode));
 }
 
 /*
- * XXX - see https://www.spinics.net/lists/linux-fsdevel/msg90326.html
- *
- * is sp_free_inode called afterwards?
+ * A file has been removed so we need to clean up.
  */
 
-static void
+void
 sp_evict_inode(struct inode *inode)
 {
     struct sp_inode_info    *spi = ITOSPI(inode);
@@ -215,15 +217,16 @@ sp_evict_inode(struct inode *inode)
     struct spfs_sb_info     *sbi = SBTOSPFSSB(sb);
     int                     blkpos, i;
 
+    printk("spfs: sp_evict_inode (ino=%ld, nlink=%d)\n",
+           inode->i_ino, (int)inode->i_nlink);
     truncate_inode_pages_final(&inode->i_data);
     invalidate_inode_buffers(inode);
     clear_inode(inode);
-    if (inode->i_nlink) {   /* XXX sysvfs different to BFS */
-        printk("spfs: sp_evict_inode - nlink > 0 (ino=%ld)\n", inode->i_ino);
+
+    if (inode->i_nlink) {  /* the file must really be gone otherwise ... */
         return;
     }
 
-    printk("spfs: sp_evict_inode - nlink = 0 (ino=%ld)\n", inode->i_ino);
     mutex_lock(&sbi->s_lock);
     sbi->s_nifree++;
     sbi->s_inode[inode->i_ino] = SP_INODE_FREE;
@@ -233,7 +236,6 @@ sp_evict_inode(struct inode *inode)
         sbi->s_block[blkpos] = SP_BLOCK_FREE;
     }
     mutex_unlock(&sbi->s_lock);
-    printk("spfs: sp_evict_inode - end of function\n");
 }
 
 /*
@@ -274,7 +276,7 @@ sp_put_super(struct super_block *sb)
 }
 
 /*
- * This function is called by the df command.
+ * This function is called by the df(1) command / statfs(2) system call
  */
 
 int
@@ -283,6 +285,7 @@ sp_statfs(struct dentry *dentry, struct kstatfs *buf)
     struct super_block   *sb = dentry->d_sb;
     struct spfs_sb_info  *sbi = SBTOSPFSSB(sb);
 
+    printk("spfs: sp_statfs called for %s\n", dentry->d_name.name);
     buf->f_type = SP_MAGIC;
     buf->f_bsize = SP_BSIZE;
     buf->f_blocks = SP_MAXBLOCKS;
@@ -295,16 +298,17 @@ sp_statfs(struct dentry *dentry, struct kstatfs *buf)
     return 0;
 }
 
-static struct inode *
+struct inode *
 sp_alloc_inode(struct super_block *sb)
 {
-    struct sp_inode_info    *si;
+    struct sp_inode_info    *spi;
 
-    si = alloc_inode_sb(sb, spfs_inode_cache, GFP_KERNEL);
-    if (!si) {
+    spi = alloc_inode_sb(sb, spfs_inode_cache, GFP_KERNEL);
+    if (!spi) {
         return NULL;
     }
-    return &si->vfs_inode;
+    printk("spfs: sp_alloc_inode - spi = 0x%px\n", spi);
+    return &spi->vfs_inode;
 }
 
 struct super_operations spfs_sops = {
@@ -321,11 +325,9 @@ struct super_operations spfs_sops = {
  *
  * We read in the superblock and the root inode and initialize everything 
  * needed.
- *
- * XXX mutex_destroy(&info->bfs_lock);  - do we need such a lock?
  */
 
-static int
+int
 spfs_fill_super(struct super_block *sb, void *data, int silent)
 {
     struct sp_superblock    *spfs_sb;
@@ -347,7 +349,6 @@ spfs_fill_super(struct super_block *sb, void *data, int silent)
     }
 
     mutex_init(&spfs_info->s_lock);
-    sb->s_fs_info = spfs_info;
     sb_set_blocksize(sb, SP_BSIZE);
     sb->s_time_min = 0;
     sb->s_time_max = U32_MAX;
@@ -374,10 +375,6 @@ spfs_fill_super(struct super_block *sb, void *data, int silent)
         goto out1;
     }
 
-    /*
-     *  XXX - We should mark the superblock to be dirty and write it to disk.
-     */
-
     sb->s_fs_info = spfs_info;
     sb->s_magic = SP_MAGIC;
     sb->s_op = &spfs_sops;
@@ -401,7 +398,7 @@ spfs_fill_super(struct super_block *sb, void *data, int silent)
     if (!root_inode) {
         goto out1;
     }
-    printk("spfs: sp_fill_super - root_inode = %p\n", root_inode);
+    printk("spfs: sp_fill_super - root_inode = %px\n", root_inode);
     sb->s_root = d_make_root(root_inode);
     if (!sb->s_root) {
         error = -ENOMEM;
@@ -429,41 +426,51 @@ spfs_mount(struct file_system_type *fs_type, int flags,
     return mount_bdev(fs_type, flags, dev_name, data, spfs_fill_super);
 }
 
-static void
-init_once(void *ptr)
+/*
+ * This function gets called when initializing a new slab for
+ * our Linux inode. Called roughly a dozen times in a row as 
+ * new inodes get allocated.
+ */
+
+void
+sp_init_once(void *ptr)
 {   
-    struct sp_inode_info *spi = ptr;
+    struct sp_inode_info  *spi = ptr;
+    struct inode          *inode;
 
     inode_init_once(&spi->vfs_inode);
+    inode = &spi->vfs_inode;
+    inode->i_private = spi;
 }
 
-static int __init
+int __init
 sp_init_inodecache(void)
 {   
-    spfs_inode_cache = kmem_cache_create("spfs_inode_cache",
+    spfs_inode_cache = kmem_cache_create_usercopy("spfs_inode_cache",
                          sizeof(struct sp_inode_info), 0, (SLAB_RECLAIM_ACCOUNT|
-                         SLAB_MEM_SPREAD|SLAB_ACCOUNT), init_once);
+                         SLAB_MEM_SPREAD|SLAB_ACCOUNT), 
+                         offsetof(struct sp_inode_info, i_symlink), 
+                         sizeof_field(struct sp_inode_info, i_symlink),
+                         sp_init_once);
     if (spfs_inode_cache == NULL) {
         return -ENOMEM;
     }
     return 0;
 }   
 
-static void
+void
 sp_destroy_inodecache(void)
 {
     /*
      * Make sure all delayed rcu free inodes are flushed before we
-     * destroy cache. XXX - change wording (BFS). 
-     * Why would this be true? You can't unload a module which still
-     * has mounted filesystems can you?
+     * destroy cache (comment from BFS).
      */
 
     rcu_barrier();
     kmem_cache_destroy(spfs_inode_cache);
 }
 
-static struct file_system_type spfs_fs_type = {
+struct file_system_type spfs_fs_type = {
     .owner      = THIS_MODULE,
     .name       = "spfs",
     .mount      = spfs_mount,
@@ -473,7 +480,7 @@ static struct file_system_type spfs_fs_type = {
 
 MODULE_ALIAS_FS("spfs");
 
-static int __init
+int __init
 init_spfs_fs(void)
 {
     int error = sp_init_inodecache(); 
@@ -492,7 +499,7 @@ out1:
     return error;
 }
 
-static void __exit
+void __exit
 exit_spfs_fs(void)
 {
     printk("spfs: exit_spfs_fs\n");

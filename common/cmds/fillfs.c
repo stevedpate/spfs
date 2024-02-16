@@ -5,7 +5,7 @@
  *            it easier to get started (running "ls", "cat" etc), i.e.
  *            some simple, read-only type commands.
  *
- * Copyright 2023 Steve D. Pate
+ * Copyright 2023-2024 Steve D. Pate
  */
 
 #include <sys/types.h>

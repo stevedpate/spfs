@@ -4,7 +4,7 @@
  * sp_dir.c - directory specific operations (mkdir, rmdir, readdir, rename,
  *            file creation, symlinks, hard links, ...
  *
- * Copyright (c) 2023 Steve D. Pate
+ * Copyright (c) 2023-2024 Steve D. Pate
  */
 
 #include <linux/sched.h>
@@ -14,21 +14,50 @@
 #include "../../../common/kern/spfs.h"
 
 /*
+ * Called by sp_rmdir() and sp_unlink() to delete a file. We
+ * remove the directory entry, decrement link counts and update
+ * timestamps. When the link count goes to 0, sp_evict_inode()
+ * will be called and it frees blocks and the inode.
+ */
+
+int
+sp_delete_file(struct inode *dip, struct dentry *dentry)
+
+{
+	struct inode			*inode = dentry->d_inode;
+	ino_t					inum = 0;
+
+	printk("spfs: sp_delete_file for %s\n", (char *)dentry->d_name.name);
+	inum = sp_find_entry(dip, (char *)dentry->d_name.name);
+	if (!inum) {
+		return -ENOENT;
+	}
+	sp_dirdel(dip, (char *)dentry->d_name.name);
+
+	dip->i_ctime = dip->i_mtime = current_time(dip);
+	inode->i_ctime = dip->i_ctime;
+	inode_dec_link_count(dip);
+	inode_dec_link_count(inode);
+	mark_inode_dirty(inode);
+	mark_inode_dirty(dip);
+	return 0;
+}
+
+/*
  * Remove "name" from the directory "dip".
  */
 
 int
 sp_dirdel(struct inode *dip, char *name)
 {
-	struct sp_inode_info    *spi = (struct sp_inode_info *)&dip->i_private;
+	struct sp_inode_info    *spi = (struct sp_inode_info *)dip->i_private;
 	struct buffer_head      *bh;
 	struct super_block      *sb = dip->i_sb;
 	struct sp_dirent        *dirent;
 	__u32                   blk = 0;
 	int                     i;
 
-	printk("spfs: In sp_dirdel for %s\n", name);
-
+	printk("spfs: sp_dirdel for %s\n", name);
 	while (blk < spi->i_blocks) {
 		bh = sb_bread(sb, spi->i_addr[blk]);
 		blk++;
@@ -37,7 +66,7 @@ sp_dirdel(struct inode *dip, char *name)
 			if (strcmp(dirent->d_name, name) != 0) {
 				dirent++;
 				continue;
-			} else {
+			} else { /* found it ... */
 				dirent->d_ino = 0;
 				dirent->d_name[0] = '\0';
 				mark_buffer_dirty(bh);
@@ -63,21 +92,20 @@ sp_diradd(struct inode *dip, const char *name, int inum)
 	int					  blk = 0;
 	int                   error = 0, i, pos;
 
-	printk("spfs: In sp_diradd for %s (inum = %d)\n", name, inum);
+	printk("spfs: sp_diradd for %s (inum = %d)\n", name, inum);
 
 	for (blk=0 ; blk < spi->i_blocks ; blk++) {
 		bh = sb_bread(sb, spi->i_addr[blk]);
 		dirent = (struct sp_dirent *)bh->b_data;
 		for (i=0 ; i < SP_DIRS_PER_BLOCK ; i++) {
-			if (dirent->d_ino != 0) {
+			if (dirent->d_ino != 0) { /* slot is occupied */
 				dirent++;
 				continue;
-			} else {
+			} else {                  /* slot is free */
 				dirent->d_ino = inum;
 				strcpy(dirent->d_name, name);
 				dip->i_size += SP_DIRENT_SIZE;
 				mark_buffer_dirty(bh);
-				inode_inc_link_count(dip);
 				brelse(bh);
 				return 0;
 			}
@@ -123,7 +151,7 @@ sp_rename(struct user_namespace *mnt_userns, struct inode *old_dir,
     struct inode    *inode = d_inode(old_dentry);
     int             error;
 
-    printk("spfs: In sp_rename %s -> %s\n",
+    printk("spfs: sp_rename %s -> %s\n",
             old_dentry->d_name.name, new_dentry->d_name.name);
 
     error = sp_diradd(new_dir, new_dentry->d_name.name,
@@ -144,8 +172,8 @@ sp_readdir(struct file *f, struct dir_context *ctx)
 	unsigned int			offset;
 	int						blk, disk_blk;
 
-	/*printk("spfs: sp_readdir - dip = %p (spi = %p)\n", dip, spi);*/
-	printk("spfs: sp_readdir - i_size = %d, ctx->pos = %d\n", (int)dip->i_size, (int)ctx->pos);
+	printk("spfs: sp_readdir - i_size = %d, ctx->pos = %d\n", 
+           (int)dip->i_size, (int)ctx->pos);
 
     while (ctx->pos < dip->i_size) {
 		offset = ctx->pos % SP_BSIZE;
@@ -178,7 +206,6 @@ sp_readdir(struct file *f, struct dir_context *ctx)
 }
 
 struct file_operations sp_dir_operations = {
-	.read			= generic_read_dir, /* XXX - doesn't do anything! */
 	.iterate_shared	= sp_readdir,
 	.fsync			= generic_file_fsync,
 };
@@ -192,7 +219,7 @@ sp_new_inode(struct inode *dip, struct dentry *dentry, umode_t mode,
 	struct sp_dirent		*dirent;
     struct inode			*inode;
     struct sp_inode_info	*spi;
-    int						error, inum, blk, slen;
+    int						inum, blk, slen;
 	char					*name = (char *)dentry->d_name.name;
 
 	printk("spfs: sp_new_inode for %s - mode=%o\n", name, mode);
@@ -209,13 +236,13 @@ sp_new_inode(struct inode *dip, struct dentry *dentry, umode_t mode,
 	inode->i_mtime = inode->i_atime = inode->i_ctime = current_time(inode);
 	inode->i_ino = inum;
 	insert_inode_hash(inode);
-	spi = ITOSPI(inode);
+	spi = spi_container(inode);
     inode->i_private = spi;
     spi->i_fs[0] = 'S';
     spi->i_fs[1] = 'P';
     spi->i_fs[2] = 'F';
     spi->i_fs[3] = 'S';
-	memset(spi->i_addr, 0, SP_DIRECT_BLOCKS); /* XXX 247 0s? 32-bit? */
+	memset(spi->i_addr, 0, SP_DIRECT_BLOCKS);
 
 	if (S_ISREG(mode)) {
 		inode->i_blocks = 0;
@@ -232,13 +259,9 @@ sp_new_inode(struct inode *dip, struct dentry *dentry, umode_t mode,
 		inode->i_size = 2 * SP_DIRENT_SIZE;
 
 		spi->i_blocks = 1;
-		blk = sp_block_alloc(sb);	/* XXX failure? */
+		blk = sp_block_alloc(sb);
 		spi->i_addr[0] = blk;
 		bh = sb_bread(sb, blk);
-		if (!bh) {
-			/* XXX - need to handle failure */
-			return 0;
-		}
 		memset(bh->b_data, 0, SP_BSIZE);
 		dirent = (struct sp_dirent *)bh->b_data;
 		dirent->d_ino = inum;
@@ -249,28 +272,31 @@ sp_new_inode(struct inode *dip, struct dentry *dentry, umode_t mode,
 
 		mark_buffer_dirty(bh);
 		brelse(bh);
-	} else { /* S_IFLNK  - size set to 0 as kernel will write symlink */
-		slen = strlen(symlink_target) + 1;
+	} else { /* symbolic link */
+		slen = strlen(symlink_target);
 		inode->i_blocks = 0;
-		inode->i_size = 0;
-		inode->i_op = &sp_symlink_operations;
-		inode_nohighmem(inode);  /* XXX does what? */
-		inode->i_mapping->a_ops = &sp_aops;
+		inode->i_size = slen;
+		inode->i_link = spi->i_symlink;
+        memcpy(inode->i_link, symlink_target, slen + 1);
 
-		/*
-		 * XXX - calls write_begin/end, creates page with link and sets i_size
-		 */
+        /*
+         * The kernel provided ops vector only contains:
+         *
+         * .link = simple_get_link;
+         */
 
-		error = page_symlink(inode, symlink_target, slen);
+		inode->i_op = &simple_symlink_inode_operations;
 	}
 
 	/*
-	 * Finish off things ...
+	 * Finish off things ... mark everything dirty and
+     * instantiate the new inode in the dcache.
 	 */
 
 	mark_inode_dirty(inode);
+    inode_inc_link_count(dip);
 	mark_inode_dirty(dip);
-	sp_diradd(dip, name, inum);		/* XXX check errors */
+	sp_diradd(dip, name, inum);
 	d_instantiate(dentry, inode);
 
 	return inode;
@@ -290,13 +316,13 @@ sp_create(struct user_namespace *mnt_userns, struct inode *dip,
 	char			*name = (char *)dentry->d_name.name;
 	int				error;
 
-	/*printk("spfs: In sp_create for %s\n", name);*/
+	printk("spfs: sp_create for %s\n", name);
 	inode = sp_new_inode(dip, dentry, S_IFREG | mode, NULL);
 	if (IS_ERR(inode)) {
 		error = PTR_ERR(inode);
         goto out;
 	}
-	printk("spfs: sp_create - inode %p created for %s\n", inode, name);
+	printk("spfs: sp_create - inode %px created for %s\n", inode, name);
 out:
 	return error;
 }
@@ -320,7 +346,8 @@ sp_mkdir(struct user_namespace *mnt_userns, struct inode *dip,
 		error = PTR_ERR(inode);
         goto out;
 	}
-	printk("spfs: sp_mkdir - inode %p created for %s\n", inode, name);
+    inode_inc_link_count(inode);
+	printk("spfs: sp_mkdir - inode %px created for %s\n", inode, name);
 
 out:
 	return error;
@@ -333,64 +360,29 @@ out:
 int
 sp_rmdir(struct inode *dip, struct dentry *dentry)
 {
-	struct super_block     *sb = dip->i_sb;
-	struct spfs_sb_info    *sbi = SBTOSPFSSB(sb);
-	struct inode           *inode = dentry->d_inode;
-	struct sp_inode_info   *spi = ITOSPI(inode);
-	int                    inum, i;
+    struct inode *inode = dentry->d_inode;
+    int          error;
 
 	printk("spfs: sp_rmdir for %s\n", (char *)dentry->d_name.name);
-
 	if (inode->i_nlink > 2) {
-			return -ENOTEMPTY;
+	    return -ENOTEMPTY;
 	}
+	error = sp_delete_file(dip, dentry);
+    if (!error) {
+        /*
+         * If the deletion worked, we'll come back with a link count
+         * of 1. We need to decrement again so it reaches 0 and a call
+         * to sp_evict_inode() will be made.
+         */
 
-	/*
-	 * Remove the entry from the parent directory
-	 */
-
-	inum = sp_find_entry(dip, (char *)dentry->d_name.name);
-	if (!inum) {
-			return -ENOTDIR;
-	}
-	sp_dirdel(dip, (char *)dentry->d_name.name);
-
-	/*
-	 * Clean up the inode
-	 */
-
-	mutex_lock(&sbi->s_lock);
-	for (i=0 ; i<SP_DIRECT_BLOCKS ; i++) {
-			if (spi->i_addr[i] != 0) {
-					sbi->s_block[spi->i_addr[i]] = SP_BLOCK_FREE;
-					sbi->s_nbfree++;
-			}
-	}
-
-	/*
-	 * Update the superblock summaries.
-     * XXX - need to update free block count
-	 */
-
-	sbi->s_inode[inode->i_ino] = SP_INODE_FREE;
-	sbi->s_nifree++;
-	mutex_unlock(&sbi->s_lock);
-
-	dip->i_ctime = dip->i_mtime = current_time(dip);
-	mark_inode_dirty(dip);
-
-	inode->i_ctime = dip->i_ctime;
-	inode_dec_link_count(inode);
-
-	return 0;
+	    inode_dec_link_count(inode);
+    }
+	return error;
 }
 
 /*
  * Lookup the specified file. If found, we'll bring it into core
  * otherwise we instantiate a negative dentry.
- *
- * XXX - there is a comment in dcache.c (__d_move) that "negative
- * dcache entries should not be moved in this way"
  */
 
 struct dentry *
@@ -400,17 +392,22 @@ sp_lookup(struct inode *dip, struct dentry *dentry, unsigned int flags)
 	char				*name = (char *)dentry->d_name.name;
 	int                 inum;
 
-	printk("spfs: sp_lookup - for %s\n", name);
+	printk("spfs: sp_lookup - for %s, dentry=%px\n", name, dentry);
 	if (dentry->d_name.len > SP_NAMELEN) {
 		return ERR_PTR(-ENAMETOOLONG);
 	}
 
 	inum = sp_find_entry(dip, name);
 	if (inum) {
-		inode = sp_read_inode(dip->i_sb, inum); /* XXX errror */
-		printk("spfs: sp_lookup name = %s, inode = %p (ino=%d)\n",
+		inode = sp_read_inode(dip->i_sb, inum);
+		printk("spfs: sp_lookup name = %s, inode = %px (ino=%d)\n",
 		       name, inode, inum);
 	} else {
+
+        /*
+         * We'll instantiate a negative dentry
+         */
+
 		printk("spfs: sp_lookup - %s not found\n", name);
 	}
 	return d_splice_alias(inode, dentry);
@@ -426,30 +423,6 @@ sp_getattr(struct user_namespace *mnt_userns, const struct path *path,
     return 0;
 }
 
-static int
-sp_readlink(struct dentry *dentry, char __user *buffer, int buflen)
-{
-	struct inode			*inode = d_inode(dentry);
-	struct sp_inode_info	*spi = ITOSPI(inode);
-
-	printk("spfs: sp_page_get_link for %s\n", (char *)dentry->d_name.name);
-	return copy_to_user(buffer, spi->i_symlink, inode->i_size);
-}
-
-const char *sp_page_get_link(struct dentry *dentry, struct inode *inode,
-			  struct delayed_call *callback)
-{
-	printk("spfs: sp_page_get_link for %s\n", (char *)dentry->d_name.name);
-	return page_get_link(dentry, inode, callback);
-}
-
-static const struct inode_operations sp_symlink_operations = {
-	/* XXX .get_link   = page_get_link,*/
-	.readlink   = sp_readlink,
-	.get_link   = sp_page_get_link,
-    .getattr    = sp_getattr,
-};
-
 /*
  * Called in response to an "ln -s" command/syscall to create a 
  * symbolic link.
@@ -464,15 +437,14 @@ sp_symlink(struct user_namespace *mnt_userns, struct inode *dip,
 	char					*name = (char *)dentry->d_name.name;
 	int						error = 0;
 
-	printk("spfs: In sp_symlink - new file = %s -> %s\n", name, target);
+	printk("spfs: sp_symlink - new file = %s -> %s\n", name, target);
 
 	inode = sp_new_inode(dip, dentry, S_IFLNK | S_IRWXUGO, target);
 	if (IS_ERR(inode)) {
 		error = PTR_ERR(inode);
         goto out;
 	}
-	printk("spfs: sp_symlink - inode %p created for %s\n", inode, name);
-	printk("spfs: sp_symlink - i_size=%lld, i_blocks=%lld\n", inode->i_size, inode->i_blocks);
+	printk("spfs: sp_symlink - inode %px created for %s\n", inode, name);
 out:
 	return error;
 }
@@ -488,7 +460,7 @@ sp_link(struct dentry *old, struct inode *dip, struct dentry *new)
 	struct inode	*inode = d_inode(old);
 	int				error;
 
-	printk("spfs: In sp_link - new file = %s\n", new->d_name.name);
+	printk("spfs: sp_link - new file = %s\n", new->d_name.name);
 
 	/*
 	 * Add the new file (new) to its parent directory (dip)
@@ -501,7 +473,7 @@ sp_link(struct dentry *old, struct inode *dip, struct dentry *new)
 	 */
 
 	inc_nlink(inode);
-	inode->i_ctime = current_time(inode);
+	inode->i_mtime = current_time(inode);
 	mark_inode_dirty(inode);
 	ihold(inode);
 	d_instantiate(new, inode);
@@ -516,30 +488,9 @@ int
 sp_unlink(struct inode *dip, struct dentry *dentry)
 
 {
-	struct super_block		*sb = dip->i_sb;
-	struct spfs_sb_info		*sbi = SBTOSPFSSB(sb);
-	struct inode			*inode = dentry->d_inode;
-	struct sp_inode_info	*spi = ITOSPI(inode);
-	int						blk, i, error = -ENOENT;
-	ino_t					inum = 0;
+	printk("spfs: sp_unlink for %s\n", dentry->d_name.name);
 
-	inum = sp_find_entry(dip, (char *)dentry->d_name.name);
-	if (!inum) {
-		goto out;
-	}
-	printk("spfs: In sp_unlink for %s (inum = %ld)\n",
-			(char *)dentry->d_name.name, inum);
-	sp_dirdel(dip, (char *)dentry->d_name.name);
-
-	dip->i_ctime = dip->i_mtime = current_time(dip);
-	mark_inode_dirty(dip);
-
-	inode->i_ctime = dip->i_ctime;
-	inode_dec_link_count(inode);
-	error = 0;
-
-out:
-	return error;
+	return sp_delete_file(dip, dentry);
 }
 
 struct inode_operations sp_dir_inops = {

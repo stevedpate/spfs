@@ -3,7 +3,7 @@
 /*
  * sp_file.c - regular file operations.
  *
- * Copyright (c) 2023 Steve D. Pate
+ * Copyright (c) 2023-2024 Steve D. Pate
  */
 
 #include <linux/fs.h>
@@ -20,8 +20,8 @@ struct file_operations sp_file_operations = {
 };
 
 /*
- * XXX - sectors are 512 bytes so same as SP_BSIZE for now
- * 		may need to factor that in at some point if we change blk size
+ * Called when reading or writing to a regular file. If 'create' is set
+ * we need to allocate a block if one does not exist already.
  */
 
 int
@@ -33,10 +33,32 @@ sp_get_block(struct inode *inode, sector_t block,
 	struct sp_inode_info	*spi = ITOSPI(inode);
 	int						blk;
 
-	printk("spfs: sp_get_block (inode = %p, block = %d)\n", inode, (int)block);
+	printk("spfs: sp_get_block (inode = %px, block = %d)\n", inode, (int)block);
 
 	/*
-	 * First check to see is the file can be extended.
+	 * Regardless of whether we're reading or writing, if the block
+     * requested exists, map it and return. On the read path, the 
+     * data will be read in. For writes, it will be read in and then
+     * modifications will be made to the page.
+	 */
+
+    phys = spi->i_addr[block];
+    if (phys) {
+        map_bh(bh_result, sb, phys);
+        return 0;
+    }
+
+    /*
+     * If we're reading and don't have a block backing on disk,
+     * we must be reading over a hole. Leave that to the kernel.
+     */
+
+    if (!create) {
+        return 0;
+    }
+
+	/*
+	 * We're writing. First check to see is the file can be extended.
 	 */
 
 	if (block >= SP_DIRECT_BLOCKS) {
@@ -44,65 +66,63 @@ sp_get_block(struct inode *inode, sector_t block,
 	}
 
 	/*
-	 * If we're creating, we must allocate a new block.
+	 * We must allocate a new block. Assuming we get a block, we map it 
+     * and specify that the buffer is new which will avoid the kernel 
+     * reading it data from disk.
 	 */
 
-	if (create) { /* XXX - needs checking ??? */
-		blk = sp_block_alloc(sb);
-		if (blk == 0) {
-			printk("spfs: sp_get_block - out of space\n");
-			return -ENOSPC;
-		}
-		printk("spfs: sp_get_block - allocated blk=%d \n", blk);
-		spi->i_addr[block] = blk;
-		spi->i_blocks++;
-		mark_inode_dirty(inode);
-		map_bh(bh_result, sb, blk);
-	} else {
-		phys = spi->i_addr[block];	/* sector = BLKSZ */
-		printk("spfs: sp_get_block - not create, disk blk = %ld\n", phys);
-		map_bh(bh_result, sb, phys);
-	}
+    blk = sp_block_alloc(sb);
+    if (blk == 0) {
+        printk("spfs: sp_get_block - out of space\n");
+        return -ENOSPC;
+    }
+    printk("spfs: sp_get_block - allocated blk=%d \n", blk);
+    spi->i_addr[block] = blk;
+    spi->i_blocks++;
+    mark_inode_dirty(inode);
+    set_buffer_new(bh_result);
+    map_bh(bh_result, sb, blk);
+
 	return 0;
 }
 
-static void
+void
 sp_write_failed(struct address_space *mapping, loff_t to)
 {
     struct inode *inode = mapping->host;
 
-	printk("spfs: sp_write_failed for inode=%p\n", inode);
+	printk("spfs: sp_write_failed for inode=%px\n", inode);
     if (to > inode->i_size) {
         truncate_pagecache(inode, inode->i_size);
 	}
 }
 
-static int
+int
 sp_write_begin(struct file *file, struct address_space *mapping,
 			   loff_t pos, unsigned len, struct page **pagep, void **fsdata)
 {
 	struct inode	*inode	= mapping->host;
     int				ret;
 
-	printk("spfs: sp_write_begin for inode=%p, off=%lld, len=%d\n",
+	printk("spfs: sp_write_begin for inode=%px, off=%lld, len=%d\n",
 		   inode, pos, len);
     ret = block_write_begin(mapping, pos, len, pagep, sp_get_block);
     if (unlikely(ret)) {
         sp_write_failed(mapping, pos + len);
 	}
-	printk("spfs: sp_write_begin got page=%p\n", *pagep);
+	printk("spfs: sp_write_begin got page=%px\n", *pagep);
     return ret;
 }
 
-static int
+int
 sp_write_end(struct file *file, struct address_space *mapping,
-			loff_t pos, unsigned len, unsigned copied,
-			struct page *page, void *fsdata)
+			 loff_t pos, unsigned len, unsigned copied,
+			 struct page *page, void *fsdata)
 {
 	struct inode	*inode	= mapping->host;
     int				error;
 
-	printk("spfs: sp_write_end for inode=%p, off=%lld, len=%d, page=%p\n",
+	printk("spfs: sp_write_end for inode=%px, off=%lld, len=%d, page=%px\n",
 		   inode, pos, len, page);
 	error = generic_write_end(file, mapping, pos, len, copied, page, fsdata);
     return error;
@@ -111,11 +131,11 @@ sp_write_end(struct file *file, struct address_space *mapping,
 int
 sp_writepage(struct page *page, struct writeback_control *wbc)
 {
-	printk("spfs: sp_writepage for page=%p\n", page);
+	printk("spfs: sp_writepage for page=%px\n", page);
 	return block_write_full_page(page, sp_get_block, wbc);
 }
 
-static int
+int
 sp_read_folio(struct file *file, struct folio *folio)
 {
 	printk("spfs: sp_read_folio\n");

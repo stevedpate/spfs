@@ -3,7 +3,7 @@
 /*
  * sp_alloc.c - routines for allocating an inode and a data block.
  *
- * Copyright (c) 2023 Steve D. Pate
+ * Copyright (c) 2023-2024 Steve D. Pate
  */
 
 #include <linux/module.h>
@@ -15,14 +15,16 @@
 
 /*
  * Allocate a new inode. We update the superblock and return
- * the inode number.
+ * the inode number. If we drop out of the for loop, we must
+ * have allocated an inode. The only time this will fail is
+ * if (sbi->s_nifree == 0) which we check first.
  */
 
 ino_t
 sp_ialloc(struct super_block *sb)
 {
     struct spfs_sb_info  *sbi = SBTOSPFSSB(sb);
-    int                   i;
+    int                   i = 0;
 
     if (sbi->s_nifree == 0) {
         printk("spfs: Out of inodes\n");
@@ -67,7 +69,6 @@ sp_block_alloc(struct super_block *sb)
         if (sbi->s_block[i] == SP_BLOCK_FREE) {
             sbi->s_block[i] = SP_BLOCK_INUSE;
             sbi->s_nbfree--;
-            /* XXX sb->s_dirt = 1;*/
             mutex_unlock(&sbi->s_lock);
             return SP_FIRST_DATA_BLOCK + i;
         }

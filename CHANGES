@@ -1,0 +1,6 @@
+v1.1 - November 2023
+        - The 22.10 version runs on 23.04 without changes so symlink
+          23.04 -> 22.10
+
+v1.0 - Late 2022
+        - Basic version working on Ubuntu 22.10

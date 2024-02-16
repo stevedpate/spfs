@@ -8,7 +8,7 @@
  *          - root inode with entries for ".", ".." and "lost+found"
  *          - lost+found inode with entries for "." and ".." 
  *
- * Copyright 2023 Steve D. Pate
+ * Copyright 2023-2024 Steve D. Pate
  */
 
 #include <sys/types.h>
