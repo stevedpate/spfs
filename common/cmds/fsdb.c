@@ -125,7 +125,6 @@ undelete_file(void)
 	 */
 
 	read_inode(inum, &spi, 1);
-	printf("mode = %x\n", spi.i_mode);
 
 	/*
 	 * 2. Try and validate some fields - at least mode (IFREG)
@@ -156,6 +155,7 @@ undelete_file(void)
 	for (i = 0 ; i < spi.i_blocks ; i++) {
 		if (sb.s_block[spi.i_addr[i]] != SP_BLOCK_FREE) {
 			sb.s_inode[inum] = SP_INODE_FREE;
+	        sb.s_nifree++;
 			printf("Block %d in use so can't undelete inode\n", spi.i_addr[i]);
 			return;
 		}

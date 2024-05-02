@@ -1,3 +1,15 @@
+v1.3 - May 2024
+        - Changes to support Ubuntu 24.04 server, specifically the
+          6.8.0-31 kernel.
+        - Removed sp_getattr() which wasn't actually being used. Linux
+          must now get attributes directly from the incore inode.
+        - You can't touch inode time fields (i_ctime, i_mtime and i_atime)
+          anymore. I switched to using inode_set_* functions.
+        - Some functions used to take "struct user_namespace" struct as an
+          argument. They now take "struct mnt_idmap". Either way, SPFS
+          ignores the argument.
+        - There is no writepage interface anymore. It's now use writepages.
+
 v1.2 - February 2024
         - The course is now complete so this is the version that goes
           with the first version of the course.

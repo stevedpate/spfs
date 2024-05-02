@@ -11,7 +11,7 @@
 #include <linux/string.h>
 #include <linux/buffer_head.h>
 #include <linux/time.h>
-#include "../../../common/kern/spfs.h"
+#include "spfs.h"
 
 /*
  * Called by sp_rmdir() and sp_unlink() to delete a file. We
@@ -25,6 +25,7 @@ sp_delete_file(struct inode *dip, struct dentry *dentry)
 
 {
 	struct inode			*inode = dentry->d_inode;
+    struct timespec64       tv;
 	ino_t					inum = 0;
 
 	printk("spfs: sp_delete_file for %s\n", (char *)dentry->d_name.name);
@@ -34,8 +35,8 @@ sp_delete_file(struct inode *dip, struct dentry *dentry)
 	}
 	sp_dirdel(dip, (char *)dentry->d_name.name);
 
-	dip->i_ctime = dip->i_mtime = current_time(dip);
-	inode->i_ctime = dip->i_ctime;
+    tv = inode_set_ctime_current(dip);
+    inode_set_atime_to_ts(dip, tv);
 	inode_dec_link_count(dip);
 	inode_dec_link_count(inode);
 	mark_inode_dirty(inode);
@@ -144,7 +145,7 @@ sp_diradd(struct inode *dip, const char *name, int inum)
  */
 
 int
-sp_rename(struct user_namespace *mnt_userns, struct inode *old_dir,
+sp_rename(struct mnt_idmap *idmap, struct inode *old_dir,
           struct dentry *old_dentry, struct inode *new_dir,
           struct dentry *new_dentry, unsigned int flags)
 {
@@ -219,6 +220,7 @@ sp_new_inode(struct inode *dip, struct dentry *dentry, umode_t mode,
 	struct sp_dirent		*dirent;
     struct inode			*inode;
     struct sp_inode_info	*spi;
+    struct timespec64       tv;
     int						inum, blk, slen;
 	char					*name = (char *)dentry->d_name.name;
 
@@ -232,8 +234,11 @@ sp_new_inode(struct inode *dip, struct dentry *dentry, umode_t mode,
 		iput(inode);
 		return ERR_PTR(-ENOSPC);
 	}
-	inode_init_owner(&init_user_ns, inode, dip, mode);
-	inode->i_mtime = inode->i_atime = inode->i_ctime = current_time(inode);
+	inode_init_owner(&nop_mnt_idmap, inode, dip, mode);
+
+    tv = inode_set_ctime_current(inode);
+    inode_set_mtime_to_ts(inode, tv);
+    inode_set_atime_to_ts(inode, tv);
 	inode->i_ino = inum;
 	insert_inode_hash(inode);
 	spi = spi_container(inode);
@@ -308,7 +313,7 @@ sp_new_inode(struct inode *dip, struct dentry *dentry, umode_t mode,
  */
 
 int
-sp_create(struct user_namespace *mnt_userns, struct inode *dip,
+sp_create(struct mnt_idmap *idmap, struct inode *dip,
           struct dentry *dentry, umode_t mode, bool excl)
 {
 	struct inode	*inode;
@@ -332,7 +337,7 @@ out:
  */
 
 int
-sp_mkdir(struct user_namespace *mnt_userns, struct inode *dip,
+sp_mkdir(struct mnt_idmap *idmap, struct inode *dip,
          struct dentry *dentry, umode_t mode)
 {
 	struct inode            *inode;
@@ -412,23 +417,13 @@ sp_lookup(struct inode *dip, struct dentry *dentry, unsigned int flags)
 	return d_splice_alias(inode, dentry);
 }
 
-int
-sp_getattr(struct user_namespace *mnt_userns, const struct path *path,
-           struct kstat *stat, u32 request_mask, unsigned int flags)
-{
-    generic_fillattr(&init_user_ns, d_inode(path->dentry), stat);
-    stat->blocks = SP_MAXBLOCKS; /* XXX */
-    stat->blksize = SP_BSIZE;
-    return 0;
-}
-
 /*
  * Called in response to an "ln -s" command/syscall to create a 
  * symbolic link.
  */
 
 int
-sp_symlink(struct user_namespace *mnt_userns, struct inode *dip,
+sp_symlink(struct mnt_idmap *idmap, struct inode *dip,
 		   struct dentry *dentry, const char *target)
 
 {
@@ -456,8 +451,9 @@ out:
 int
 sp_link(struct dentry *old, struct inode *dip, struct dentry *new)
 {
-	struct inode	*inode = d_inode(old);
-	int				error;
+	struct inode	    *inode = d_inode(old);
+    struct timespec64   tv;
+	int				    error;
 
 	printk("spfs: sp_link - new file = %s\n", new->d_name.name);
 
@@ -472,7 +468,8 @@ sp_link(struct dentry *old, struct inode *dip, struct dentry *new)
 	 */
 
 	inc_nlink(inode);
-	inode->i_mtime = current_time(inode);
+    tv = inode_set_ctime_current(dip);
+    inode_set_mtime_to_ts(dip, tv);
 	mark_inode_dirty(inode);
 	ihold(inode);
 	d_instantiate(new, inode);

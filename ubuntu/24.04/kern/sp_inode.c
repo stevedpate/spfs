@@ -19,7 +19,7 @@
 #include <linux/fs.h>
 #include <linux/writeback.h>
 #include <uapi/linux/mount.h>
-#include "../../../common/kern/spfs.h"
+#include "spfs.h"
 
 MODULE_AUTHOR("Steve Pate <spate@me.com>");
 MODULE_DESCRIPTION("A simple Linux filesystem for teaching");
@@ -120,12 +120,10 @@ sp_read_inode(struct super_block *sb, unsigned long ino)
     set_nlink(inode, le32_to_cpu(disk_ip->i_nlink));
     inode->i_size = le32_to_cpu(disk_ip->i_size);
     inode->i_blocks = disk_ip->i_blocks;
-    inode->i_atime.tv_sec = disk_ip->i_atime;
-    inode->i_mtime.tv_sec = disk_ip->i_mtime;
-    inode->i_ctime.tv_sec = disk_ip->i_ctime;
-    inode->i_atime.tv_nsec = 0;
-    inode->i_mtime.tv_nsec = 0;
-    inode->i_ctime.tv_nsec = 0;
+
+    inode_set_ctime(inode, le32_to_cpu(disk_ip->i_ctime), 0);
+    inode_set_mtime(inode, le32_to_cpu(disk_ip->i_mtime), 0);
+    inode_set_atime(inode, le32_to_cpu(disk_ip->i_atime), 0);
 
     for (i=0 ; i < SP_DIRECT_BLOCKS ; i++) {
         spi->i_addr[i] = disk_ip->i_addr[i];
@@ -167,9 +165,11 @@ sp_write_inode(struct inode *inode, struct writeback_control *wbc)
     dip = (struct sp_inode *)bh->b_data;
     dip->i_mode = cpu_to_le32(inode->i_mode);
     dip->i_nlink = cpu_to_le32(inode->i_nlink);
-    dip->i_atime = cpu_to_le32(inode->i_atime.tv_sec);
-    dip->i_mtime = cpu_to_le32(inode->i_mtime.tv_sec);
-    dip->i_ctime = cpu_to_le32(inode->i_ctime.tv_sec);
+
+    dip->i_atime = cpu_to_le32(inode_get_atime_sec(inode));
+    dip->i_mtime = cpu_to_le32(inode_get_atime_sec(inode));
+    dip->i_ctime = cpu_to_le32(inode_get_atime_sec(inode));
+
     dip->i_uid = cpu_to_le32(i_uid_read(inode));
     dip->i_gid = cpu_to_le32(i_gid_read(inode));
     dip->i_size = cpu_to_le32(inode->i_size);
