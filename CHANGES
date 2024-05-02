@@ -8,7 +8,7 @@ v1.3 - May 2024
         - Some functions used to take "struct user_namespace" struct as an
           argument. They now take "struct mnt_idmap". Either way, SPFS
           ignores the argument.
-        - There is no writepage interface anymore. It's now use writepages.
+        - There is no writepage interface anymore. It's now just writepages.
 
 v1.2 - February 2024
         - The course is now complete so this is the version that goes
